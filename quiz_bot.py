@@ -1,59 +1,25 @@
-import sys
-import types
-
-# Patch pour Python 3.13 : certains packages attendent encore le module standard 'imghdr'
-try:
-    import imghdr  # type: ignore
-except ModuleNotFoundError:
-    imghdr = types.ModuleType("imghdr")
-
-    def what(file, h=None):
-        return None
-
-    imghdr.what = what
-    sys.modules["imghdr"] = imghdr
-
-import os
+import time
+import json
 import logging
-from typing import Dict, Any, List
-
-from telegram import (
-    Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    LabeledPrice,
-)
-from telegram.ext import (
-    Updater,
-    CommandHandler,
-    CallbackQueryHandler,
-    PreCheckoutQueryHandler,
-    MessageHandler,
-    Filters,
-    CallbackContext,
-)
+import requests
 
 # ----------------------------------------------------
-# CONFIGURATION DE BASE
+# CONFIG
 # ----------------------------------------------------
+
+BOT_TOKEN = "8360941682:AAHe21iKKvbfVrty43-TspiYGU8vXGcS008"  # ← mets ton token ici
+BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/"
 
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# ⚠️ METS TON TOKEN ICI (ENTRE GUILLEMETS)
-BOT_TOKEN = "8360941682:AAHe21iKKvbfVrty43-TspiYGU8vXGcS008"
+# état simple en mémoire : user_id -> dict
+USER_STATE = {}
 
-# Token de paiement (optionnel pour l’instant)
-PAYMENT_PROVIDER_TOKEN = os.getenv("PAYMENT_PROVIDER_TOKEN", "TON_PROVIDER_TOKEN_ICI")
-
-# ----------------------------------------------------
-# QUESTIONS DU QUIZ (MVP)
-# ----------------------------------------------------
-
-QUESTIONS: List[Dict[str, Any]] = [
+# questions de base
+QUESTIONS = [
     {
         "question": "Dans quelle ville se trouve la Tour Eiffel ?",
         "options": ["Rome", "Paris", "Londres", "Madrid"],
@@ -71,233 +37,245 @@ QUESTIONS: List[Dict[str, Any]] = [
     },
 ]
 
-# ----------------------------------------------------
-# ETAT UTILISATEUR
-# ----------------------------------------------------
-
-def init_user_state(context: CallbackContext) -> None:
-    user_data = context.user_data
-    user_data.setdefault("score", 0)
-    user_data.setdefault("current_q_index", 0)
-    user_data.setdefault("credits", 3)  # 3 parties offertes
-    user_data.setdefault("games_played", 0)
-
 
 # ----------------------------------------------------
-# ENVOI DES QUESTIONS & FIN DE PARTIE
+# HELPERS API TELEGRAM
 # ----------------------------------------------------
 
-def send_question(update: Update, context: CallbackContext) -> None:
-    user_data = context.user_data
-    q_index = user_data["current_q_index"]
+def tg_request(method: str, params: dict | None = None):
+    url = BASE_URL + method
+    try:
+        resp = requests.post(url, json=params or {}, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        if not data.get("ok", False):
+            logger.warning("Telegram error: %s", data)
+        return data
+    except Exception as e:
+        logger.error("Request error on %s: %s", method, e)
+        return None
+
+
+def send_message(chat_id: int, text: str, reply_markup: dict | None = None):
+    payload = {"chat_id": chat_id, "text": text}
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+    return tg_request("sendMessage", payload)
+
+
+def answer_callback_query(callback_query_id: str, text: str | None = None):
+    payload = {"callback_query_id": callback_query_id}
+    if text:
+        payload["text"] = text
+    return tg_request("answerCallbackQuery", payload)
+
+
+# ----------------------------------------------------
+# LOGIQUE DE JEU
+# ----------------------------------------------------
+
+def init_user_state(user_id: int):
+    st = USER_STATE.get(user_id, {})
+    st.setdefault("score", 0)
+    st.setdefault("current_q_index", 0)
+    st.setdefault("credits", 3)  # 3 parties offertes
+    st.setdefault("games_played", 0)
+    USER_STATE[user_id] = st
+    return st
+
+
+def start_game(chat_id: int, user_id: int):
+    st = init_user_state(user_id)
+    if st["credits"] <= 0:
+        send_message(
+            chat_id,
+            "💡 Vous n'avez plus de jetons Velvet.\n"
+            "La partie gratuite est terminée pour l’instant.",
+        )
+        return
+    st["score"] = 0
+    st["current_q_index"] = 0
+    send_question(chat_id, user_id)
+
+
+def send_question(chat_id: int, user_id: int):
+    st = USER_STATE[user_id]
+    q_index = st["current_q_index"]
 
     if q_index >= len(QUESTIONS):
-        end_game(update, context)
+        end_game(chat_id, user_id)
         return
 
-    question = QUESTIONS[q_index]
-    options = question["options"]
-
+    q = QUESTIONS[q_index]
     keyboard = [
-        [InlineKeyboardButton(text=opt, callback_data=f"answer:{q_index}:{i}")]
-        for i, opt in enumerate(options)
+        [
+            {
+                "text": opt,
+                "callback_data": f"answer:{q_index}:{i}",
+            }
+        ]
+        for i, opt in enumerate(q["options"])
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
 
-    if update.callback_query:
-        update.callback_query.edit_message_text(
-            text=f"❓ {question['question']}",
-            reply_markup=reply_markup,
-        )
-    elif update.message:
-        update.message.reply_text(
-            text=f"❓ {question['question']}",
-            reply_markup=reply_markup,
-        )
+    text = f"❓ {q['question']}"
+    send_message(chat_id, text, reply_markup={"inline_keyboard": keyboard})
 
 
-def end_game(update: Update, context: CallbackContext) -> None:
-    user_data = context.user_data
-    score = user_data.get("score", 0)
+def end_game(chat_id: int, user_id: int):
+    st = USER_STATE[user_id]
+    score = st["score"]
     total = len(QUESTIONS)
+
+    st["games_played"] += 1
+    st["credits"] = max(st["credits"] - 1, 0)
 
     msg = (
         "🎉 Partie terminée !\n\n"
         f"Score : {score} / {total}\n"
+        f"Jetons Velvet restants : {st['credits']}\n"
     )
-
-    user_data["games_played"] += 1
-    user_data["credits"] = max(user_data["credits"] - 1, 0)
-    msg += f"Crédits restants : {user_data['credits']}\n"
-
-    if user_data["credits"] <= 0:
+    if st["credits"] <= 0:
         msg += (
-            "\n💎 Vous n'avez plus de jetons Velvet.\n"
-            "Utilisez /buy_credits pour recharger."
+            "\n💎 La réserve de jetons est vide pour l’instant.\n"
+            "Velvet Oracle restera accessible pour une prochaine session."
         )
 
-    if update.callback_query:
-        update.callback_query.edit_message_text(msg)
-    elif update.message:
-        update.message.reply_text(msg)
-
-    user_data["score"] = 0
-    user_data["current_q_index"] = 0
+    send_message(chat_id, msg)
 
 
 # ----------------------------------------------------
-# COMMANDES PRINCIPALES
+# HANDLERS
 # ----------------------------------------------------
 
-def start(update: Update, context: CallbackContext) -> None:
-    init_user_state(context)
-    user_data = context.user_data
-
-    msg = (
+def handle_start(chat_id: int, user_id: int):
+    st = init_user_state(user_id)
+    text = (
         "🎩 *Bienvenue dans Velvet Oracle.*\n\n"
         "Ici, chaque question ouvre une porte.\n"
         "Chaque bonne réponse révèle un peu plus de votre discernement.\n\n"
         "Vous entrez dans un quiz réservé à celles et ceux qui apprécient la "
-        "précision, la maîtrise\n"
-        "et le silence des cercles choisis.\n\n"
-        f"_Jetons Velvet disponibles :_ *{user_data['credits']}*\n\n"
-        "• 🎯 */quiz* — lancer une partie\n"
-        "• 💎 */buy_credits* — acquérir des jetons Velvet\n\n"
+        "précision, la maîtrise et le silence des cercles choisis.\n\n"
+        f"_Jetons Velvet disponibles :_ *{st['credits']}*\n\n"
+        "• 🎯 /quiz — lancer une partie\n"
         "Prenez place. L’Oracle vous attend."
     )
-
-    update.message.reply_markdown(msg)
-
-
-def quiz(update: Update, context: CallbackContext) -> None:
-    init_user_state(context)
-    user_data = context.user_data
-
-    if user_data["credits"] <= 0:
-        update.message.reply_text(
-            "💡 Vous n'avez plus de jetons Velvet.\n"
-            "Utilisez /buy_credits pour recharger et continuer à jouer."
-        )
-        return
-
-    user_data["score"] = 0
-    user_data["current_q_index"] = 0
-    send_question(update, context)
+    # markdown simple
+    tg_request(
+        "sendMessage",
+        {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"},
+    )
 
 
-# ----------------------------------------------------
-# GESTION DES RÉPONSES AUX QUESTIONS
-# ----------------------------------------------------
-
-def answer_callback(update: Update, context: CallbackContext) -> None:
-    query = update.callback_query
-    query.answer()
-
-    user_data = context.user_data
-    init_user_state(context)
-
-    data = query.data  # "answer:q_index:option_index"
-    try:
-        _, q_str, opt_str = data.split(":")
-        q_index = int(q_str)
-        chosen_index = int(opt_str)
-    except ValueError:
-        query.edit_message_text("Erreur de format de réponse.")
-        return
-
-    if q_index != user_data["current_q_index"]:
-        query.edit_message_text("Cette question est déjà passée.")
-        return
-
-    question = QUESTIONS[q_index]
-    correct_index = question["correct_index"]
-
-    if chosen_index == correct_index:
-        user_data["score"] += 1
-        feedback = "✅ Bonne réponse !"
+def handle_text_message(chat_id: int, user_id: int, text: str):
+    text = text.strip()
+    if text == "/start":
+        handle_start(chat_id, user_id)
+    elif text == "/quiz":
+        start_game(chat_id, user_id)
     else:
-        correct_option = question["options"][correct_index]
-        feedback = f"❌ Mauvaise réponse.\nLa bonne réponse était : {correct_option}"
-
-    user_data["current_q_index"] += 1
-    query.edit_message_text(feedback)
-
-    send_question(update, context)
-
-
-# ----------------------------------------------------
-# PAIEMENTS TELEGRAM (ACHAT DE JETONS)
-# ----------------------------------------------------
-
-def buy_credits(update: Update, context: CallbackContext) -> None:
-    if PAYMENT_PROVIDER_TOKEN == "TON_PROVIDER_TOKEN_ICI":
-        update.message.reply_text(
-            "⚠️ Le paiement n'est pas encore configuré.\n"
-            "Ajoutez votre PAYMENT_PROVIDER_TOKEN pour activer cette fonction."
+        send_message(
+            chat_id,
+            "Commande non reconnue.\n"
+            "Utilisez /start pour l’accueil ou /quiz pour lancer une partie.",
         )
+
+
+def handle_callback_query(update: dict):
+    cq = update["callback_query"]
+    cq_id = cq["id"]
+    from_user = cq.get("from", {})
+    user_id = from_user.get("id")
+    message = cq.get("message", {})
+    chat = message.get("chat", {})
+    chat_id = chat.get("id")
+    data = cq.get("data", "")
+
+    if user_id is None or chat_id is None:
         return
 
-    title = "Pack de jetons Velvet"
-    description = "Recharge de 10 jetons Velvet pour Velvet Oracle."
-    payload = "quiz-credit-purchase"
-    currency = "EUR"
-    price_in_eur = 3
-    prices = [LabeledPrice("Pack 10 jetons Velvet", price_in_eur * 100)]
+    init_user_state(user_id)
+    st = USER_STATE[user_id]
 
-    update.message.bot.send_invoice(
-        chat_id=update.effective_chat.id,
-        title=title,
-        description=description,
-        payload=payload,
-        provider_token=PAYMENT_PROVIDER_TOKEN,
-        currency=currency,
-        prices=prices,
-        start_parameter="velvet-oracle-credits",
-    )
+    if data.startswith("answer:"):
+        try:
+            _, q_str, opt_str = data.split(":")
+            q_index = int(q_str)
+            chosen_index = int(opt_str)
+        except Exception:
+            answer_callback_query(cq_id, "Erreur de format.")
+            return
 
+        # sécurité : synchro sur la question courante
+        if q_index != st["current_q_index"]:
+            answer_callback_query(cq_id, "Cette question est déjà passée.")
+            return
 
-def precheckout_callback(update: Update, context: CallbackContext) -> None:
-    query = update.pre_checkout_query
-    if query.invoice_payload != "quiz-credit-purchase":
-        query.answer(ok=False, error_message="Payload invalide.")
-    else:
-        query.answer(ok=True)
+        question = QUESTIONS[q_index]
+        correct_index = question["correct_index"]
 
+        if chosen_index == correct_index:
+            st["score"] += 1
+            feedback = "✅ Bonne réponse !"
+        else:
+            correct_opt = question["options"][correct_index]
+            feedback = f"❌ Mauvaise réponse.\nLa bonne réponse était : {correct_opt}"
 
-def successful_payment_callback(update: Update, context: CallbackContext) -> None:
-    user_data = context.user_data
-    init_user_state(context)
+        answer_callback_query(cq_id)  # simple ack
+        send_message(chat_id, feedback)
 
-    user_data["credits"] += 10
-
-    update.message.reply_text(
-        f"✅ Paiement reçu !\n"
-        f"Vous avez maintenant {user_data['credits']} jetons Velvet.\n"
-        "Utilisez /quiz pour lancer une nouvelle partie."
-    )
+        st["current_q_index"] += 1
+        send_question(chat_id, user_id)
 
 
 # ----------------------------------------------------
-# MAIN : LANCEMENT DU BOT
+# BOUCLE PRINCIPALE (LONG POLLING)
 # ----------------------------------------------------
 
-def main() -> None:
-    updater = Updater(BOT_TOKEN, use_context=True)
-    dp = updater.dispatcher
+def main():
+    logger.info("Velvet Oracle bot démarré (mode minimal, sans paiements).")
+    offset = None
 
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CommandHandler("quiz", quiz))
-    dp.add_handler(CommandHandler("buy_credits", buy_credits))
+    while True:
+        try:
+            params = {"timeout": 50}
+            if offset is not None:
+                params["offset"] = offset
 
-    dp.add_handler(CallbackQueryHandler(answer_callback, pattern=r"^answer:"))
+            resp = requests.get(
+                BASE_URL + "getUpdates", params=params, timeout=60
+            )
+            resp.raise_for_status()
+            data = resp.json()
 
-    dp.add_handler(PreCheckoutQueryHandler(precheckout_callback))
-    dp.add_handler(
-        MessageHandler(Filters.successful_payment, successful_payment_callback)
-    )
+            if not data.get("ok", False):
+                logger.warning("getUpdates error: %s", data)
+                time.sleep(2)
+                continue
 
-    updater.start_polling()
-    updater.idle()
+            for update in data.get("result", []):
+                offset = update["update_id"] + 1
+                try:
+                    if "message" in update:
+                        msg = update["message"]
+                        chat_id = msg["chat"]["id"]
+                        user = msg.get("from", {})
+                        user_id = user.get("id")
+                        text = msg.get("text", "")
+
+                        if user_id is None or text is None:
+                            continue
+
+                        handle_text_message(chat_id, user_id, text)
+
+                    elif "callback_query" in update:
+                        handle_callback_query(update)
+
+                except Exception as e:
+                    logger.exception("Erreur en traitant un update: %s", e)
+
+        except Exception as e:
+            logger.error("Erreur dans la boucle principale: %s", e)
+            time.sleep(5)  # évite de spammer Telegram / planter la machine
 
 
 if __name__ == "__main__":
