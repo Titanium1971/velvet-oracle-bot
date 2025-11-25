@@ -1,4 +1,19 @@
 # ----------------------------------------------------
+# CONFIGURATION DE BASE
+# ----------------------------------------------------
+
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
+)
+logger = logging.getLogger(__name__)
+
+# ⚠️ Ton token doit être défini ici
+BOT_TOKEN = "8360941682:AAHe21iKKvbfVrty43-TspiYGU8vXGcS008"
+
+# Token de paiement (optionnel, tu peux laisser comme ça)
+PAYMENT_PROVIDER_TOKEN = os.getenv("PAYMENT_PROVIDER_TOKEN", "TON_PROVIDER_TOKEN_ICI")
+# ----------------------------------------------------
 # MAIN : LANCEMENT DU BOT
 # ----------------------------------------------------
 
