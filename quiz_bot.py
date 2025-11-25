@@ -1,3 +1,18 @@
+import sys
+import types
+
+# Patch pour Python 3.13 : certains packages attendent encore le module standard 'imghdr'
+try:
+    import imghdr  # type: ignore
+except ModuleNotFoundError:
+    imghdr = types.ModuleType("imghdr")
+
+    def what(file, h=None):
+        return None
+
+    imghdr.what = what
+    sys.modules["imghdr"] = imghdr
+
 import os
 import logging
 from typing import Dict, Any, List
