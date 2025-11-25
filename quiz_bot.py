@@ -1,5 +1,3 @@
-import os
-import random
 import time
 import json
 import logging
@@ -9,7 +7,7 @@ import requests
 # CONFIG
 # ----------------------------------------------------
 
-BOT_TOKEN = "8360941682:AAHe21iKKvbfVrty43-TspiYGU8vXGcS008"  # ← mets ton token ici
+BOT_TOKEN = "TON_TOKEN_ICI"  # ← mets ton token ici entre guillemets
 BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/"
 
 logging.basicConfig(
@@ -17,22 +15,30 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# état simple en mémoire : user_id -> dict
+# état simple en mémoire : user_id -> dict d'état
 USER_STATE = {}
 
-# questions de base
-QUESTIONS = []
-QUESTIONS_PER_GAME = 20  # par exemple
+# Quelques questions de test (on pourra étendre plus tard)
+QUESTIONS = [
+    {
+        "question": "Dans quelle ville se trouve la Tour Eiffel ?",
+        "options": ["Rome", "Paris", "Londres", "Madrid"],
+        "correct_index": 1,
+    },
+    {
+        "question": "Qui a peint la Joconde ?",
+        "options": ["Picasso", "Van Gogh", "Léonard de Vinci", "Monet"],
+        "correct_index": 2,
+    },
+    {
+        "question": "Combien font 9 x 7 ?",
+        "options": ["54", "56", "63", "72"],
+        "correct_index": 2,
+    },
+]
 
-def load_questions():
-    """Charge les questions depuis questions.json une fois au démarrage."""
-    global QUESTIONS
-    base_dir = os.path.dirname(__file__)
-    path = os.path.join(base_dir, "questions.json")
-    with open(path, "r", encoding="utf-8") as f:
-        QUESTIONS = json.load(f)
-    logging.info("Questions chargées : %s", len(QUESTIONS))
-    
+QUESTIONS_PER_GAME = 3  # nombre de questions par partie (ici toutes)
+
 
 # ----------------------------------------------------
 # HELPERS API TELEGRAM
@@ -45,7 +51,7 @@ def tg_request(method: str, params: dict | None = None):
         resp.raise_for_status()
         data = resp.json()
         if not data.get("ok", False):
-            logger.warning("Telegram error: %s", data)
+            logger.warning("Telegram error on %s: %s", method, data)
         return data
     except Exception as e:
         logger.error("Request error on %s: %s", method, e)
@@ -73,13 +79,11 @@ def answer_callback_query(callback_query_id: str, text: str | None = None):
 def init_user_state(user_id: int):
     st = USER_STATE.get(user_id, {})
     st.setdefault("score", 0)
-    st.setdefault("current_index", 0)
-    st.setdefault("credits", 10)
+    st.setdefault("current_q_index", 0)
+    st.setdefault("credits", 3)  # 3 parties offertes
     st.setdefault("games_played", 0)
-    st.setdefault("question_ids", [])
     USER_STATE[user_id] = st
     return st
-
 
 
 def start_game(chat_id: int, user_id: int):
@@ -97,31 +101,26 @@ def start_game(chat_id: int, user_id: int):
         send_message(chat_id, "Aucune question disponible pour le moment.")
         return
 
-    # On tire au hasard les questions de la partie
-    nb = min(QUESTIONS_PER_GAME, len(QUESTIONS))
-    st["question_ids"] = random.sample(range(len(QUESTIONS)), nb)
     st["score"] = 0
-    st["current_index"] = 0
-
+    st["current_q_index"] = 0
     send_question(chat_id, user_id)
-
 
 
 def send_question(chat_id: int, user_id: int):
     st = USER_STATE[user_id]
-    idx = st["current_index"]
-    if idx >= len(st["question_ids"]):
+    q_index = st["current_q_index"]
+
+    if q_index >= QUESTIONS_PER_GAME or q_index >= len(QUESTIONS):
         end_game(chat_id, user_id)
         return
 
-    q_idx = st["question_ids"][idx]
-    q = QUESTIONS[q_idx]
+    q = QUESTIONS[q_index]
 
     keyboard = [
         [
             {
                 "text": opt,
-                "callback_data": f"answer:{idx}:{i}",
+                "callback_data": f"answer:{q_index}:{i}",
             }
         ]
         for i, opt in enumerate(q["options"])
@@ -131,11 +130,10 @@ def send_question(chat_id: int, user_id: int):
     send_message(chat_id, text, reply_markup={"inline_keyboard": keyboard})
 
 
-
 def end_game(chat_id: int, user_id: int):
     st = USER_STATE[user_id]
     score = st["score"]
-    total = len(QUESTIONS)
+    total = min(QUESTIONS_PER_GAME, len(QUESTIONS))
 
     st["games_played"] += 1
     st["credits"] = max(st["credits"] - 1, 0)
@@ -145,6 +143,7 @@ def end_game(chat_id: int, user_id: int):
         f"Score : {score} / {total}\n"
         f"Jetons Velvet restants : {st['credits']}\n"
     )
+
     if st["credits"] <= 0:
         msg += (
             "\n💎 La réserve de jetons est vide pour l’instant.\n"
@@ -152,6 +151,9 @@ def end_game(chat_id: int, user_id: int):
         )
 
     send_message(chat_id, msg)
+
+    st["score"] = 0
+    st["current_q_index"] = 0
 
 
 # ----------------------------------------------------
@@ -170,7 +172,6 @@ def handle_start(chat_id: int, user_id: int):
         "• 🎯 /quiz — lancer une partie\n"
         "Prenez place. L’Oracle vous attend."
     )
-    # markdown simple
     tg_request(
         "sendMessage",
         {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"},
@@ -191,21 +192,37 @@ def handle_text_message(chat_id: int, user_id: int, text: str):
         )
 
 
+def handle_callback_query(update: dict):
+    cq = update["callback_query"]
+    cq_id = cq["id"]
+    from_user = cq.get("from", {})
+    user_id = from_user.get("id")
+    message = cq.get("message", {})
+    chat = message.get("chat", {})
+    chat_id = chat.get("id")
+    data = cq.get("data", "")
+
+    if user_id is None or chat_id is None:
+        return
+
+    init_user_state(user_id)
+    st = USER_STATE[user_id]
+
     if data.startswith("answer:"):
         try:
-            _, idx_str, opt_str = data.split(":")
-            idx = int(idx_str)          # index dans la séquence de la partie
+            _, q_str, opt_str = data.split(":")
+            q_index = int(q_str)
             chosen_index = int(opt_str)
         except Exception:
             answer_callback_query(cq_id, "Erreur de format.")
             return
 
-        if idx != st["current_index"]:
+        # sécurité : synchro sur la question courante
+        if q_index != st["current_q_index"]:
             answer_callback_query(cq_id, "Cette question est déjà passée.")
             return
 
-        q_idx = st["question_ids"][idx]
-        question = QUESTIONS[q_idx]
+        question = QUESTIONS[q_index]
         correct_index = question["correct_index"]
 
         if chosen_index == correct_index:
@@ -215,12 +232,11 @@ def handle_text_message(chat_id: int, user_id: int, text: str):
             correct_opt = question["options"][correct_index]
             feedback = f"❌ Mauvaise réponse.\nLa bonne réponse était : {correct_opt}"
 
-        answer_callback_query(cq_id)
+        answer_callback_query(cq_id)  # simple ack
         send_message(chat_id, feedback)
 
-        st["current_index"] += 1
+        st["current_q_index"] += 1
         send_question(chat_id, user_id)
-
 
 
 # ----------------------------------------------------
@@ -228,7 +244,7 @@ def handle_text_message(chat_id: int, user_id: int, text: str):
 # ----------------------------------------------------
 
 def main():
-    logger.info("Velvet Oracle bot démarré (mode minimal, sans paiements).")
+    logger.info("Velvet Oracle bot démarré (MVP).")
     offset = None
 
     while True:
@@ -271,10 +287,8 @@ def main():
 
         except Exception as e:
             logger.error("Erreur dans la boucle principale: %s", e)
-            time.sleep(5)  # évite de spammer Telegram / planter la machine
+            time.sleep(5)
 
 
 if __name__ == "__main__":
-    load_questions()   # ← indispensable
     main()
-
