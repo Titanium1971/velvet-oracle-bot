@@ -292,7 +292,7 @@ def main() -> None:
     if not BOT_TOKEN or BOT_TOKEN == "8360941682:AAHe21iKKvbfVrty43-TspiYGU8vXGcS008":
         raise RuntimeError("Ajoutez votre TELEGRAM_BOT_TOKEN dans BOT_TOKEN avant de lancer le script.")
 
-    application = Application.builder().token(8360941682:AAHe21iKKvbfVrty43-TspiYGU8vXGcS008).build()
+    application = Application.builder().token("8360941682:AAHe21iKKvbfVrty43-TspiYGU8vXGcS008").build()
 
     # Commandes
     application.add_handler(CommandHandler("start", start))
