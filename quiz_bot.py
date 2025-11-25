@@ -31,8 +31,7 @@ def load_questions():
     with open(path, "r", encoding="utf-8") as f:
         QUESTIONS = json.load(f)
     logging.info("Questions chargées : %s", len(QUESTIONS))
-
-
+    QUESTIONS_PER_GAME = 10  # par exemple
 
 # ----------------------------------------------------
 # HELPERS API TELEGRAM
@@ -73,11 +72,13 @@ def answer_callback_query(callback_query_id: str, text: str | None = None):
 def init_user_state(user_id: int):
     st = USER_STATE.get(user_id, {})
     st.setdefault("score", 0)
-    st.setdefault("current_q_index", 0)
-    st.setdefault("credits", 3)  # 3 parties offertes
+    st.setdefault("current_index", 0)
+    st.setdefault("credits", 10)
     st.setdefault("games_played", 0)
+    st.setdefault("question_ids", [])
     USER_STATE[user_id] = st
     return st
+
 
 
 def start_game(chat_id: int, user_id: int):
