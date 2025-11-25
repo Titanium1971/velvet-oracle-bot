@@ -7,7 +7,7 @@ import requests
 # CONFIG
 # ----------------------------------------------------
 
-BOT_TOKEN = "TON_TOKEN_ICI"  # ← mets ton token ici entre guillemets
+BOT_TOKEN = "8360941682:AAHe21iKKvbfVrty43-TspiYGU8vXGcS008"  # ← mets ton token ici entre guillemets
 BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/"
 
 logging.basicConfig(
