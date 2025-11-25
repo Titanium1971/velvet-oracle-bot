@@ -3,7 +3,7 @@
 # ----------------------------------------------------
 
 def main() -> None:
-    if not BOT_TOKEN or BOT_TOKEN == "TON_BOT_TOKEN_ICI":
+    if not BOT_TOKEN or BOT_TOKEN == "8360941682:AAHe21iKKvbfVrty43-TspiYGU8vXGcS008":
         raise RuntimeError(
             "Ajoutez votre TELEGRAM_BOT_TOKEN dans BOT_TOKEN avant de lancer le script."
         )
