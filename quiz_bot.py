@@ -31,7 +31,7 @@ def load_questions():
     with open(path, "r", encoding="utf-8") as f:
         QUESTIONS = json.load(f)
     logging.info("Questions chargées : %s", len(QUESTIONS))
-    QUESTIONS_PER_GAME = 10  # par exemple
+    QUESTIONS_PER_GAME = 20  # par exemple
 
 # ----------------------------------------------------
 # HELPERS API TELEGRAM
