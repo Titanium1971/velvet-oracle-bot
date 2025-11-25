@@ -289,7 +289,7 @@ async def successful_payment_callback(update: Update, context: ContextTypes.DEFA
 
 def main() -> None:
     # Garde-fou : si tu oublies de mettre un vrai token
-    BOT_TOKEN == "8360941682:AAHe21iKKvbfVrty43-TspiYGU8vXGcS008":
+    if not BOT_TOKEN or BOT_TOKEN == "8360941682:AAHe21iKKvbfVrty43-TspiYGU8vXGcS008":
         raise RuntimeError(
             "Ajoutez votre TELEGRAM_BOT_TOKEN dans BOT_TOKEN avant de lancer le script."
         )
