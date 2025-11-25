@@ -9,13 +9,13 @@ from telegram import (
     LabeledPrice,
 )
 from telegram.ext import (
-    Application,
+    Updater,
     CommandHandler,
     CallbackQueryHandler,
-    ContextTypes,
     PreCheckoutQueryHandler,
     MessageHandler,
-    filters,
+    Filters,
+    CallbackContext,
 )
 
 # ----------------------------------------------------
@@ -60,13 +60,11 @@ QUESTIONS: List[Dict[str, Any]] = [
 # ETAT UTILISATEUR
 # ----------------------------------------------------
 
-def init_user_state(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Initialise l'état utilisateur si nécessaire."""
+def init_user_state(context: CallbackContext) -> None:
     user_data = context.user_data
     user_data.setdefault("score", 0)
     user_data.setdefault("current_q_index", 0)
-    # 3 parties offertes au début
-    user_data.setdefault("credits", 3)
+    user_data.setdefault("credits", 3)  # 3 parties offertes
     user_data.setdefault("games_played", 0)
 
 
@@ -74,13 +72,12 @@ def init_user_state(context: ContextTypes.DEFAULT_TYPE) -> None:
 # ENVOI DES QUESTIONS & FIN DE PARTIE
 # ----------------------------------------------------
 
-async def send_question(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Envoie la question actuelle à l'utilisateur."""
+def send_question(update: Update, context: CallbackContext) -> None:
     user_data = context.user_data
     q_index = user_data["current_q_index"]
 
     if q_index >= len(QUESTIONS):
-        await end_game(update, context)
+        end_game(update, context)
         return
 
     question = QUESTIONS[q_index]
@@ -93,19 +90,18 @@ async def send_question(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     if update.callback_query:
-        await update.callback_query.edit_message_text(
+        update.callback_query.edit_message_text(
             text=f"❓ {question['question']}",
             reply_markup=reply_markup,
         )
     elif update.message:
-        await update.message.reply_text(
+        update.message.reply_text(
             text=f"❓ {question['question']}",
             reply_markup=reply_markup,
         )
 
 
-async def end_game(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Termine la partie, affiche le score et gère les crédits."""
+def end_game(update: Update, context: CallbackContext) -> None:
     user_data = context.user_data
     score = user_data.get("score", 0)
     total = len(QUESTIONS)
@@ -115,10 +111,8 @@ async def end_game(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"Score : {score} / {total}\n"
     )
 
-    # Consomme un crédit
     user_data["games_played"] += 1
     user_data["credits"] = max(user_data["credits"] - 1, 0)
-
     msg += f"Crédits restants : {user_data['credits']}\n"
 
     if user_data["credits"] <= 0:
@@ -128,11 +122,10 @@ async def end_game(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
 
     if update.callback_query:
-        await update.callback_query.edit_message_text(msg)
+        update.callback_query.edit_message_text(msg)
     elif update.message:
-        await update.message.reply_text(msg)
+        update.message.reply_text(msg)
 
-    # Réinitialisation pour la prochaine partie
     user_data["score"] = 0
     user_data["current_q_index"] = 0
 
@@ -141,8 +134,7 @@ async def end_game(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 # COMMANDES PRINCIPALES
 # ----------------------------------------------------
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Message d'accueil premium Velvet Oracle."""
+def start(update: Update, context: CallbackContext) -> None:
     init_user_state(context)
     user_data = context.user_data
 
@@ -159,52 +151,47 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "Prenez place. L’Oracle vous attend."
     )
 
-    if update.message:
-        await update.message.reply_markdown(msg)
+    update.message.reply_markdown(msg)
 
 
-async def quiz(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Lance une partie de quiz si l'utilisateur a des crédits."""
+def quiz(update: Update, context: CallbackContext) -> None:
     init_user_state(context)
     user_data = context.user_data
 
     if user_data["credits"] <= 0:
-        if update.message:
-            await update.message.reply_text(
-                "💡 Vous n'avez plus de jetons Velvet.\n"
-                "Utilisez /buy_credits pour recharger et continuer à jouer."
-            )
+        update.message.reply_text(
+            "💡 Vous n'avez plus de jetons Velvet.\n"
+            "Utilisez /buy_credits pour recharger et continuer à jouer."
+        )
         return
 
     user_data["score"] = 0
     user_data["current_q_index"] = 0
-    await send_question(update, context)
+    send_question(update, context)
 
 
 # ----------------------------------------------------
 # GESTION DES RÉPONSES AUX QUESTIONS
 # ----------------------------------------------------
 
-async def answer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Gère le clic sur une réponse de quiz."""
+def answer_callback(update: Update, context: CallbackContext) -> None:
     query = update.callback_query
-    await query.answer()
+    query.answer()
 
     user_data = context.user_data
     init_user_state(context)
 
-    data = query.data  # format : "answer:q_index:option_index"
+    data = query.data  # "answer:q_index:option_index"
     try:
         _, q_str, opt_str = data.split(":")
         q_index = int(q_str)
         chosen_index = int(opt_str)
     except ValueError:
-        await query.edit_message_text("Erreur de format de réponse.")
+        query.edit_message_text("Erreur de format de réponse.")
         return
 
-    # Vérifie que la réponse correspond bien à la question courante
     if q_index != user_data["current_q_index"]:
-        await query.edit_message_text("Cette question est déjà passée.")
+        query.edit_message_text("Cette question est déjà passée.")
         return
 
     question = QUESTIONS[q_index]
@@ -218,35 +205,31 @@ async def answer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         feedback = f"❌ Mauvaise réponse.\nLa bonne réponse était : {correct_option}"
 
     user_data["current_q_index"] += 1
+    query.edit_message_text(feedback)
 
-    await query.edit_message_text(feedback)
-
-    # Envoyer la prochaine question ou terminer
-    await send_question(update, context)
+    send_question(update, context)
 
 
 # ----------------------------------------------------
 # PAIEMENTS TELEGRAM (ACHAT DE JETONS)
 # ----------------------------------------------------
 
-async def buy_credits(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Envoie une facture Telegram pour acheter des jetons Velvet."""
+def buy_credits(update: Update, context: CallbackContext) -> None:
     if PAYMENT_PROVIDER_TOKEN == "TON_PROVIDER_TOKEN_ICI":
-        if update.message:
-            await update.message.reply_text(
-                "⚠️ Le paiement n'est pas encore configuré.\n"
-                "Ajoutez votre PAYMENT_PROVIDER_TOKEN pour activer cette fonction."
-            )
+        update.message.reply_text(
+            "⚠️ Le paiement n'est pas encore configuré.\n"
+            "Ajoutez votre PAYMENT_PROVIDER_TOKEN pour activer cette fonction."
+        )
         return
 
     title = "Pack de jetons Velvet"
     description = "Recharge de 10 jetons Velvet pour Velvet Oracle."
     payload = "quiz-credit-purchase"
     currency = "EUR"
-    price_in_eur = 3  # 3 €
+    price_in_eur = 3
     prices = [LabeledPrice("Pack 10 jetons Velvet", price_in_eur * 100)]
 
-    await context.bot.send_invoice(
+    update.message.bot.send_invoice(
         chat_id=update.effective_chat.id,
         title=title,
         description=description,
@@ -258,53 +241,48 @@ async def buy_credits(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     )
 
 
-async def precheckout_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Validation finale avant le paiement."""
+def precheckout_callback(update: Update, context: CallbackContext) -> None:
     query = update.pre_checkout_query
     if query.invoice_payload != "quiz-credit-purchase":
-        await query.answer(ok=False, error_message="Payload invalide.")
+        query.answer(ok=False, error_message="Payload invalide.")
     else:
-        await query.answer(ok=True)
+        query.answer(ok=True)
 
 
-async def successful_payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Gère la réception d'un paiement réussi et crédite l'utilisateur."""
+def successful_payment_callback(update: Update, context: CallbackContext) -> None:
     user_data = context.user_data
     init_user_state(context)
 
-    # On crédite l’utilisateur de 10 jetons
     user_data["credits"] += 10
 
-    if update.message:
-        await update.message.reply_text(
-            f"✅ Paiement reçu !\n"
-            f"Vous avez maintenant {user_data['credits']} jetons Velvet.\n"
-            "Utilisez /quiz pour lancer une nouvelle partie."
-        )
-        
+    update.message.reply_text(
+        f"✅ Paiement reçu !\n"
+        f"Vous avez maintenant {user_data['credits']} jetons Velvet.\n"
+        "Utilisez /quiz pour lancer une nouvelle partie."
+    )
+
+
 # ----------------------------------------------------
 # MAIN : LANCEMENT DU BOT
 # ----------------------------------------------------
 
 def main() -> None:
-    application = Application.builder().token(BOT_TOKEN).build()
+    updater = Updater(BOT_TOKEN, use_context=True)
+    dp = updater.dispatcher
 
-    # Commandes
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("quiz", quiz))
-    application.add_handler(CommandHandler("buy_credits", buy_credits))
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(CommandHandler("quiz", quiz))
+    dp.add_handler(CommandHandler("buy_credits", buy_credits))
 
-    # Réponses du quiz
-    application.add_handler(CallbackQueryHandler(answer_callback, pattern=r"^answer:"))
+    dp.add_handler(CallbackQueryHandler(answer_callback, pattern=r"^answer:"))
 
-    # Paiements
-    application.add_handler(PreCheckoutQueryHandler(precheckout_callback))
-    application.add_handler(
-        MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_callback)
+    dp.add_handler(PreCheckoutQueryHandler(precheckout_callback))
+    dp.add_handler(
+        MessageHandler(Filters.successful_payment, successful_payment_callback)
     )
 
-    # Lancement en mode polling
-    application.run_polling()
+    updater.start_polling()
+    updater.idle()
 
 
 if __name__ == "__main__":
