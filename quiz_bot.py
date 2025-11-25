@@ -108,18 +108,19 @@ def start_game(chat_id: int, user_id: int):
 
 def send_question(chat_id: int, user_id: int):
     st = USER_STATE[user_id]
-    q_index = st["current_q_index"]
-
-    if q_index >= len(QUESTIONS):
+    idx = st["current_index"]
+    if idx >= len(st["question_ids"]):
         end_game(chat_id, user_id)
         return
 
-    q = QUESTIONS[q_index]
+    q_idx = st["question_ids"][idx]
+    q = QUESTIONS[q_idx]
+
     keyboard = [
         [
             {
                 "text": opt,
-                "callback_data": f"answer:{q_index}:{i}",
+                "callback_data": f"answer:{idx}:{i}",
             }
         ]
         for i, opt in enumerate(q["options"])
@@ -127,6 +128,7 @@ def send_question(chat_id: int, user_id: int):
 
     text = f"❓ {q['question']}"
     send_message(chat_id, text, reply_markup={"inline_keyboard": keyboard})
+
 
 
 def end_game(chat_id: int, user_id: int):
@@ -188,37 +190,21 @@ def handle_text_message(chat_id: int, user_id: int, text: str):
         )
 
 
-def handle_callback_query(update: dict):
-    cq = update["callback_query"]
-    cq_id = cq["id"]
-    from_user = cq.get("from", {})
-    user_id = from_user.get("id")
-    message = cq.get("message", {})
-    chat = message.get("chat", {})
-    chat_id = chat.get("id")
-    data = cq.get("data", "")
-
-    if user_id is None or chat_id is None:
-        return
-
-    init_user_state(user_id)
-    st = USER_STATE[user_id]
-
     if data.startswith("answer:"):
         try:
-            _, q_str, opt_str = data.split(":")
-            q_index = int(q_str)
+            _, idx_str, opt_str = data.split(":")
+            idx = int(idx_str)          # index dans la séquence de la partie
             chosen_index = int(opt_str)
         except Exception:
             answer_callback_query(cq_id, "Erreur de format.")
             return
 
-        # sécurité : synchro sur la question courante
-        if q_index != st["current_q_index"]:
+        if idx != st["current_index"]:
             answer_callback_query(cq_id, "Cette question est déjà passée.")
             return
 
-        question = QUESTIONS[q_index]
+        q_idx = st["question_ids"][idx]
+        question = QUESTIONS[q_idx]
         correct_index = question["correct_index"]
 
         if chosen_index == correct_index:
@@ -228,11 +214,12 @@ def handle_callback_query(update: dict):
             correct_opt = question["options"][correct_index]
             feedback = f"❌ Mauvaise réponse.\nLa bonne réponse était : {correct_opt}"
 
-        answer_callback_query(cq_id)  # simple ack
+        answer_callback_query(cq_id)
         send_message(chat_id, feedback)
 
-        st["current_q_index"] += 1
+        st["current_index"] += 1
         send_question(chat_id, user_id)
+
 
 
 # ----------------------------------------------------
