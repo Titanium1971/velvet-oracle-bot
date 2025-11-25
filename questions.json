@@ -1,0 +1,13 @@
+[
+  {
+    "question": "Dans quelle ville se trouve la Tour Eiffel ?",
+    "options": ["Rome", "Paris", "Londres", "Madrid"],
+    "correct_index": 1
+  },
+  {
+    "question": "Qui a peint la Joconde ?",
+    "options": ["Picasso", "Van Gogh", "Léonard de Vinci", "Monet"],
+    "correct_index": 2
+  }
+  // ... ici demain, jusqu’à 50 000 entrées
+]
