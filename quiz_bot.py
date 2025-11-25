@@ -83,6 +83,7 @@ def init_user_state(user_id: int):
 
 def start_game(chat_id: int, user_id: int):
     st = init_user_state(user_id)
+
     if st["credits"] <= 0:
         send_message(
             chat_id,
@@ -90,9 +91,19 @@ def start_game(chat_id: int, user_id: int):
             "La partie gratuite est terminée pour l’instant.",
         )
         return
+
+    if len(QUESTIONS) == 0:
+        send_message(chat_id, "Aucune question disponible pour le moment.")
+        return
+
+    # On tire au hasard les questions de la partie
+    nb = min(QUESTIONS_PER_GAME, len(QUESTIONS))
+    st["question_ids"] = random.sample(range(len(QUESTIONS)), nb)
     st["score"] = 0
-    st["current_q_index"] = 0
+    st["current_index"] = 0
+
     send_question(chat_id, user_id)
+
 
 
 def send_question(chat_id: int, user_id: int):
