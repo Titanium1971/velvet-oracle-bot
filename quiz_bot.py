@@ -281,19 +281,12 @@ async def successful_payment_callback(update: Update, context: ContextTypes.DEFA
             f"Vous avez maintenant {user_data['credits']} jetons Velvet.\n"
             "Utilisez /quiz pour lancer une nouvelle partie."
         )
-
-
+        
 # ----------------------------------------------------
 # MAIN : LANCEMENT DU BOT
 # ----------------------------------------------------
 
 def main() -> None:
-    # Garde-fou : si tu oublies de mettre un vrai token
-    if not BOT_TOKEN or BOT_TOKEN == "8360941682:AAHe21iKKvbfVrty43-TspiYGU8vXGcS008":
-        raise RuntimeError(
-            "Ajoutez votre TELEGRAM_BOT_TOKEN dans BOT_TOKEN avant de lancer le script."
-        )
-
     application = Application.builder().token(BOT_TOKEN).build()
 
     # Commandes
