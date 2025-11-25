@@ -1,3 +1,5 @@
+import os
+import random
 import time
 import json
 import logging
@@ -19,23 +21,17 @@ logger = logging.getLogger(__name__)
 USER_STATE = {}
 
 # questions de base
-QUESTIONS = [
-    {
-        "question": "Dans quelle ville se trouve la Tour Eiffel ?",
-        "options": ["Rome", "Paris", "Londres", "Madrid"],
-        "correct_index": 1,
-    },
-    {
-        "question": "Qui a peint la Joconde ?",
-        "options": ["Picasso", "Van Gogh", "Léonard de Vinci", "Monet"],
-        "correct_index": 2,
-    },
-    {
-        "question": "Combien font 9 x 7 ?",
-        "options": ["54", "56", "63", "72"],
-        "correct_index": 2,
-    },
-]
+QUESTIONS = []
+
+def load_questions():
+    """Charge les questions depuis questions.json une fois au démarrage."""
+    global QUESTIONS
+    base_dir = os.path.dirname(__file__)
+    path = os.path.join(base_dir, "questions.json")
+    with open(path, "r", encoding="utf-8") as f:
+        QUESTIONS = json.load(f)
+    logging.info("Questions chargées : %s", len(QUESTIONS))
+
 
 
 # ----------------------------------------------------
