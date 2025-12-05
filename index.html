@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+<title>Velvet Oracle — Examen Graphique</title>
+
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #000;
+    color: #f5f5f5;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  }
+
+  .screen {
+    display: none;
+    min-height: 100vh;
+    padding: 24px;
+    box-sizing: border-box;
+  }
+  .active {
+    display: block;
+  }
+
+  h1, h2, h3 {
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    margin: 0 0 12px;
+  }
+
+  .intro-title {
+    font-size: 28px;
+    text-align: center;
+    margin-top: 20vh;
+  }
+
+  .intro-sub {
+    color: #ccc;
+    text-align: center;
+    max-width: 320px;
+    margin: 16px auto 0;
+    line-height: 1.4;
+  }
+
+  .btn {
+    display: inline-block;
+    margin: 24px auto 0;
+    padding: 14px 22px;
+    font-size: 15px;
+    border-radius: 40px;
+    border: none;
+    cursor: pointer;
+    background: linear-gradient(135deg, #d5b46a, #a88d4b);
+    color: #000;
+    font-weight: 600;
+  }
+
+  .card {
+    background: #0d0d0d;
+    border-radius: 16px;
+    padding: 20px;
+    max-width: 500px;
+    margin: 0 auto;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.05);
+  }
+
+  .question-number {
+    text-transform: uppercase;
+    color: #888;
+    font-size: 13px;
+    margin-bottom: 8px;
+  }
+
+  .question-text {
+    font-size: 17px;
+    margin-bottom: 16px;
+    line-height: 1.45;
+  }
+
+  .timer {
+    text-align: right;
+    font-size: 13px;
+    color: #bbb;
+    margin-bottom: 12px;
+  }
+
+  .options {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .option {
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 999px;
+    padding: 12px 16px;
+    cursor: pointer;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .option-label {
+    opacity: 0.65;
+    font-size: 14px;
+  }
+
+  .option.selected {
+    border-color: #d5b46a;
+    background: rgba(213,180,106,0.12);
+  }
+
+  .option.disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+
+  .explanation {
+    display:none;
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px dashed rgba(255,255,255,0.12);
+    font-size: 14px;
+    line-height: 1.45;
+    color: #d2c7b8;
+  }
+  .explanation strong {
+    color: #d5b46a;
+  }
+
+  textarea {
+    width: 100%;
+    max-width: 500px;
+    min-height: 120px;
+    margin-top: 16px;
+    background: #0d0d0d;
+    border: 1px solid rgba(255,255,255,0.12);
+    color: #eee;
+    border-radius: 12px;
+    padding: 12px;
+    font-size: 14px;
+    resize: vertical;
+  }
+
+  .footer {
+    margin-top: 20px;
+    text-align: center;
+    font-size: 12px;
+    opacity: 0.5;
+  }
+</style>
+</head>
+
+<body>
+
+<!-- ===========================
+     ÉCRAN 1 — ANTICHAMBRE
+=========================== -->
+<div id="screen-intro" class="screen active">
+  <h1 class="intro-title">Velvet Oracle</h1>
+  <p class="intro-sub">
+    Tu entres dans une chambre où l’exactitude,
+    le calme et la culture s’entrelacent.
+    <br><br>
+    15 questions, 20 secondes chacune.<br>
+    Un seul passage officiel.
+  </p>
+
+  <div style="text-align:center;">
+    <button class="btn" id="btn-start-intro">Commencer le rituel</button>
+  </div>
+</div>
+
+
+<!-- ===========================
+     ÉCRAN 2 — QUESTION
+=========================== -->
+<div id="screen-quiz" class="screen">
+  <div class="card">
+    <div class="timer">Temps : <span id="timer-value">20</span>s</div>
+    <div class="question-number" id="question-number"></div>
+    <div class="question-text" id="question-text"></div>
+
+    <div class="options" id="options-container"></div>
+
+    <div class="explanation" id="explanation-block"></div>
+
+    <button class="btn" id="btn-next">Valider</button>
+  </div>
+</div>
+
+
+<!-- ===========================
+     ÉCRAN 3 — RÉSULTAT + FEEDBACK
+=========================== -->
+<div id="screen-result" class="screen">
+  <div class="card" style="text-align:center;">
+    <h2>Rituel complété</h2>
+    <p id="result-text"></p>
+
+    <p style="margin-top:12px;">
+      Si tu le souhaites, laisse un court ressenti.
+    </p>
+
+    <textarea id="feedback-text" placeholder="Ton ressenti… (optionnel)"></textarea>
+
+    <button class="btn" id="btn-send-feedback">Envoyer et fermer</button>
+
+    <div class="footer">
+      Velvet Oracle · Examen Graphique
+    </div>
+  </div>
+</div>
+
+
+<script>
+// ===========================================
+// Telegram WebApp API
+// ===========================================
+const tg = window.Telegram.WebApp;
+tg.expand();
+tg.ready();
+tg.setHeaderColor("#000000");
+tg.setBackgroundColor("#000000");
+
+// ===========================================
+// Ton ancien jeu de questions (VERSION VELVET)
+// ===========================================
+// Note : Tu pourras ensuite remplacer ici par ton import automatique.
+const QUESTIONS = [
+  {
+    id: 1,
+    domain: "Musique",
+    question: "Dans l’effervescence baroque italienne, quel maître fixe vraiment la grammaire du concerto moderne ?",
+    options: [
+      "Antonio Vivaldi",    // correct
+      "Arcangelo Corelli",
+      "Giuseppe Torelli",
+      "Tomaso Albinoni"
+    ],
+    correct_index: 0,
+    explanation: "Vivaldi fixe les codes du concerto : 3 mouvements, dialogisme soliste-orchestre."
+  },
+  {
+    id: 2,
+    domain: "Civilisations",
+    question: "Parmi ces cités antiques, laquelle incarne le mieux l’idéal démocratique méditerranéen ?",
+    options: [
+      "Athènes",
+      "Sparte",
+      "Carthage",
+      "Babylone"
+    ],
+    correct_index: 0,
+    explanation: "Athènes reste la référence pour les premières expérimentations démocratiques."
+  }
+  // Ajoute ici tes 15 questions complètes comme avant
+];
+
+const TOTAL = QUESTIONS.length;
+const TIME = 20;
+
+let index = 0;
+let answers = [];
+let timer = null;
+let remaining = TIME;
+let shuffle = [];
+let selection = null;
+let examStart = null;
+let examEnd = null;
+
+
+// ===========================================
+// Utilitaires
+// ===========================================
+function show(id) {
+  document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
+  document.getElementById(id).classList.add("active");
+}
+
+function format(sec) {
+  const m = Math.floor(sec/60);
+  const s = sec % 60;
+  return `${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
+}
+
+function letter(i){ return ["A","B","C","D"][i] || "-"; }
+
+function shuffleIdx(n){
+  const arr = Array.from({length:n}, (_,i)=>i);
+  for(let i=n-1;i>0;i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+
+// ===========================================
+// Rendu d'une question
+// ===========================================
+function renderQuestion(){
+  clearInterval(timer);
+  selection = null;
+  remaining = TIME;
+
+  const q = QUESTIONS[index];
+  shuffle = shuffleIdx(q.options.length);
+
+  document.getElementById("question-number").textContent =
+    `Question ${index+1} / ${TOTAL}`;
+  document.getElementById("question-text").textContent = q.question;
+
+  const optDiv = document.getElementById("options-container");
+  optDiv.innerHTML = "";
+
+  shuffle.forEach((orig, pos)=>{
+    const div = document.createElement("div");
+    div.className = "option";
+    div.dataset.pos = pos;
+
+    div.innerHTML = `
+      <span class="option-label">${letter(pos)}</span>
+      <span>${q.options[orig]}</span>
+    `;
+
+    div.onclick = () => {
+      if(document.getElementById("explanation-block").style.display==="block") return;
+      selection = pos;
+      document.querySelectorAll(".option").forEach(o=>o.classList.remove("selected"));
+      div.classList.add("selected");
+    };
+
+    optDiv.appendChild(div);
+  });
+
+  document.getElementById("explanation-block").style.display = "none";
+  document.getElementById("explanation-block").innerHTML = "";
+  document.getElementById("btn-next").textContent = "Valider";
+
+  document.getElementById("timer-value").textContent = remaining;
+
+  timer = setInterval(()=>{
+    remaining -= 1;
+    document.getElementById("timer-value").textContent = remaining;
+    if(remaining <= 0){
+      clearInterval(timer);
+      resolve(true);
+    }
+  },1000);
+}
+
+
+// ===========================================
+// Résolution d'une question
+// ===========================================
+function resolve(timeout){
+  clearInterval(timer);
+
+  const q = QUESTIONS[index];
+  const correct = q.correct_index;
+  const correctPos = shuffle.indexOf(correct);
+
+  let status = "wrong";
+  let letterChoice="-";
+
+  if(timeout && selection===null){
+    status = "timeout";
+  } else {
+    if(selection===null){
+      status="timeout";
+    } else {
+      const orig = shuffle[selection];
+      letterChoice = letter(selection);
+      status = (orig===correct) ? "correct" : "wrong";
+    }
+  }
+
+  answers.push({
+    question_id: q.id,
+    choice_letter: letterChoice,
+    status: status
+  });
+
+  // Affichage explication
+  const exp = document.getElementById("explanation-block");
+  exp.style.display = "block";
+
+  exp.innerHTML = `
+    <strong>${
+      status==="correct" ? "Bonne réponse."
+      : status==="wrong" ? "Mauvaise réponse."
+      : "Temps écoulé."
+    }</strong><br><br>
+    Réponse attendue : <strong>${letter(correctPos)}</strong> — ${q.options[correct]}<br><br>
+    <em>${q.explanation || ""}</em>
+  `;
+
+  document.querySelectorAll(".option").forEach(o=>o.classList.add("disabled"));
+  document.getElementById("btn-next").textContent =
+    index === TOTAL-1 ? "Terminer" : "Suivante";
+}
+
+
+// ===========================================
+// Fin d'examen
+// ===========================================
+function finishExam(){
+  examEnd = Date.now();
+  const score = answers.filter(a=>a.status==="correct").length;
+  const totalTime = Math.floor((examEnd - examStart)/1000);
+
+  // payload EXAM
+  const payload = {
+    mode: "exam_v1",
+    score: score,
+    total: TOTAL,
+    total_time_seconds: totalTime,
+    answers: answers
+  };
+
+  tg.sendData(JSON.stringify(payload));
+
+  // Affichage local
+  document.getElementById("result-text").textContent =
+    `Score : ${score}/${TOTAL} · Temps : ${format(totalTime)}.`;
+
+  window.__velvetExamMeta = {
+    score, total:TOTAL, total_time_seconds: totalTime
+  };
+
+  show("screen-result");
+}
+
+
+// ===========================================
+// Feedback
+// ===========================================
+function sendFeedback(){
+  const fb = document.getElementById("feedback-text").value.trim();
+  const meta = window.__velvetExamMeta;
+
+  const payload = {
+    mode: "exam_feedback_v1",
+    feedback_text: fb,
+    analysis_mode: "nova_writing_score_v1",
+    score: meta.score,
+    total: meta.total,
+    total_time_seconds: meta.total_time_seconds
+  };
+
+  tg.sendData(JSON.stringify(payload));
+
+  if(tg.close) tg.close();
+}
+
+
+// ===========================================
+// Listeners
+// ===========================================
+document.getElementById("btn-start-intro").onclick = ()=>{
+  examStart = Date.now();
+  index = 0;
+  answers = [];
+  show("screen-quiz");
+  renderQuestion();
+};
+
+document.getElementById("btn-next").onclick = ()=>{
+  if(document.getElementById("explanation-block").style.display === "none"){
+    resolve(false);
+  } else {
+    if(index < TOTAL-1){
+      index++;
+      renderQuestion();
+    } else {
+      finishExam();
+    }
+  }
+};
+
+document.getElementById("btn-send-feedback").onclick = sendFeedback;
+
+</script>
+
+</body>
+</html>
